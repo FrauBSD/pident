@@ -1,0 +1,81 @@
+#!/bin/sh
+############################################################ IDENT(1)
+#
+# $Title: Script to print ident(1) tags from files/directories $
+# $Copyright: 2016-2018 Devin Teske. All rights reserved. $
+# $FrauBSD: pident/pident 2018-11-08 17:05:08 -0800 freebsdfrau $
+#
+############################################################ GLOBALS
+
+pgm="${0##*/}" # Program basename
+
+#
+# Global exit status
+#
+SUCCESS=0
+FAILURE=1
+
+#
+# Command-line options
+#
+KEYWORD=	# -k name
+UNIQUE=		# -u
+
+############################################################ FUNCTIONS
+
+usage()
+{
+	echo "Usage: $pgm [-k name] [-u] path ..." >&2
+	exit $FAILURE
+}
+
+############################################################ MAIN
+
+#
+# Process command-line options
+#
+while getopts k:u flag; do
+	case "$flag" in
+	k) KEYWORD="$OPTARG" ;;
+	u) UNIQUE=1 ;;
+	*) usage # NOTREACHED
+	esac
+done
+shift $(( $OPTIND - 1 ))
+
+[ $# -gt 0 ] || usage # NOTREACHED
+
+#
+# Process command-line arguments
+#
+while [ $# -gt 0 ]; do
+	find "$1" -type f \
+		-and ! -path './.svn/*' \
+		-and ! -path '*/CVS/*' \
+		| xargs awk 'match($0, /\$[[:alnum:]_]+: [^$]* \$/) {
+			print FILENAME, substr($0, RSTART, RLENGTH)
+		}'
+	shift
+done | {
+	if [ ! "$UNIQUE$KEYWORD" ]; then
+		cat
+		exit $SUCCESS
+	fi
+	{ if [ "$UNIQUE" ]; then
+	  	cut -d ' ' -f2-
+	  else
+	  	cat
+	  fi
+	} | grep "\\$\\(${KEYWORD:-.*}\\): " | sort | {
+		if [ ! "$UNIQUE" ]; then
+			cat
+			exit $SUCCESS
+		fi
+		uniq -c
+	}
+	exit $SUCCESS
+}
+
+################################################################################
+# END
+################################################################################
