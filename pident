@@ -3,7 +3,7 @@
 #
 # $Title: Script to print ident(1) tags from files/directories $
 # $Copyright: 2016-2018 Devin Teske. All rights reserved. $
-# $FrauBSD: pident/pident 2018-11-08 17:05:08 -0800 freebsdfrau $
+# $FrauBSD: pident/pident 2018-11-29 02:16:57 -0800 freebsdfrau $
 #
 ############################################################ GLOBALS
 
@@ -20,13 +20,41 @@ FAILURE=1
 #
 KEYWORD=	# -k name
 UNIQUE=		# -u
+HIDE_NAME=	# -n
 
 ############################################################ FUNCTIONS
 
 usage()
 {
-	echo "Usage: $pgm [-k name] [-u] path ..." >&2
+	echo "Usage: $pgm [-nu] [-k name] path ..." >&2
 	exit $FAILURE
+}
+
+exec 9<<'EOF'
+match($0, /\$[[:alnum:]_]+: [^$]* \$/) {
+	if (!hide_name) printf "%s ", substr(FILENAME, trim + 1)
+	print substr($0, RSTART, RLENGTH)
+}
+EOF
+pident_awk=$( cat <&9 )
+pident_find()
+{
+	local trim=0
+	case "$1" in
+	-) set -- /dev/stdin ;;
+	-*) set -- "./$1"; trim=2 ;;
+	esac
+	exec 9<&0
+	export HIDE_NAME pident_awk trim
+	find "$1" -print0 ! -type d \
+		! -path '*/CVS/*' \
+		! -path '*/.svn/*' \
+		! -path '*/.git/*' \
+		| xargs -0 sh -c 'awk \
+			-v hide_name=$HIDE_NAME \
+			-v trim=$trim \
+			"$pident_awk" "$@" 0<&9
+		' sh
 }
 
 ############################################################ MAIN
@@ -34,9 +62,10 @@ usage()
 #
 # Process command-line options
 #
-while getopts k:u flag; do
+while getopts k:nu flag; do
 	case "$flag" in
 	k) KEYWORD="$OPTARG" ;;
+	n) HIDE_NAME=1 ;;
 	u) UNIQUE=1 ;;
 	*) usage # NOTREACHED
 	esac
@@ -49,19 +78,14 @@ shift $(( $OPTIND - 1 ))
 # Process command-line arguments
 #
 while [ $# -gt 0 ]; do
-	find "$1" -type f \
-		-and ! -path './.svn/*' \
-		-and ! -path '*/CVS/*' \
-		| xargs awk 'match($0, /\$[[:alnum:]_]+: [^$]* \$/) {
-			print FILENAME, substr($0, RSTART, RLENGTH)
-		}'
+	pident_find "$1"
 	shift
 done | {
 	if [ ! "$UNIQUE$KEYWORD" ]; then
 		cat
 		exit $SUCCESS
 	fi
-	{ if [ "$UNIQUE" ]; then
+	{ if [ "$UNIQUE" -a ! "$HIDE_NAME" ]; then
 	  	cut -d ' ' -f2-
 	  else
 	  	cat
